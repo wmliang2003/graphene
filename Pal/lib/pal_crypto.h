@@ -51,6 +51,15 @@ typedef struct {
     mbedtls_cipher_type_t cipher;
     mbedtls_cipher_context_t ctx;
 } LIB_AESCMAC_CONTEXT;
+
+typedef struct {
+    mbedtls_entropy_context entropy;
+    mbedtls_ctr_drbg_context ctr_drbg;
+    mbedtls_ssl_config conf;
+    mbedtls_ssl_context ssl;
+    int ciphersuites[2];  /* [0] is actual ciphersuite, [1] must be 0 to indicate end of array */
+} LIB_SSL_CONTEXT;
+
 #endif /* CRYPTO_USE_MBEDTLS */
 
 #ifndef CRYPTO_PROVIDER_SPECIFIED

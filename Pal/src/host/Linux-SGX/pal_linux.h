@@ -178,6 +178,12 @@ int _DkStreamReportRequest(PAL_HANDLE stream, sgx_sign_data_t* data,
 int _DkStreamReportRespond(PAL_HANDLE stream, sgx_sign_data_t* data,
                            check_mr_enclave_t check_mr_enclave);
 
+int _DkStreamSecureInit(PAL_HANDLE stream, bool is_server, PAL_SESSION_KEY* session_key,
+                        LIB_SSL_CONTEXT** out_ssl_ctx);
+int _DkStreamSecureFree(LIB_SSL_CONTEXT* ssl_ctx);
+int _DkStreamSecureRead(LIB_SSL_CONTEXT* ssl_ctx, uint8_t* buf, size_t len);
+int _DkStreamSecureWrite(LIB_SSL_CONTEXT* ssl_ctx, const uint8_t* buf, size_t len);
+
 #include "sgx_arch.h"
 
 #define PAL_ENCLAVE_INITIALIZED     0x0001ULL

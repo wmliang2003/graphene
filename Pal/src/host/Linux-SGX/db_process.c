@@ -43,6 +43,18 @@
 typedef __kernel_pid_t pid_t;
 #include <asm/fcntl.h>
 
+/* =============================== TLS-PSK ================================ */
+static void mbedtls_fd_cleanup(int* fd) {
+    if (*fd == -1)
+        return;
+
+    ocall_shutdown(*fd, SHUT_RDWR);
+    ocall_close(*fd);
+
+    *fd = -1;
+}
+/* =============================== TLS-PSK ================================ */
+
 DEFINE_LIST(trusted_child);
 struct trusted_child {
     LIST_TYPE(trusted_child) list;
@@ -286,6 +298,11 @@ int _DkProcessCreate (PAL_HANDLE * handle, const char * uri, const char ** args)
     if (ret < 0)
         goto failed;
 
+    ret = _DkStreamSecureInit(child, /*is_server=*/true, &child->process.session_key,
+                              (LIB_SSL_CONTEXT**)&child->process.ssl_ctx);
+    if (ret < 0)
+        return failed;
+
     *handle = child;
     return 0;
 
@@ -336,6 +353,11 @@ int init_child_process (PAL_HANDLE * parent_handle)
     if (ret < 0)
         return ret;
 
+    ret = _DkStreamSecureInit(parent, /*is_server=*/false, &parent->process.session_key,
+                              (LIB_SSL_CONTEXT**)&parent->process.ssl_ctx);
+    if (ret < 0)
+        return ret;
+
     *parent_handle = parent;
     return 0;
 }
@@ -364,8 +386,13 @@ static int64_t proc_read (PAL_HANDLE handle, uint64_t offset, uint64_t count,
     if (count >= (1ULL << (sizeof(unsigned int) * 8)))
         return -PAL_ERROR_INVAL;
 
+#if 0
     int bytes = ocall_read(handle->process.stream_in, buffer, count);
     return IS_ERR(bytes) ? unix_to_pal_error(ERRNO(bytes)) : bytes;
+#else
+    int ret = _DkStreamSecureRead(handle->process.ssl_ctx, buffer, count);
+    return ret;
+#endif
 }
 
 static int64_t proc_write (PAL_HANDLE handle, uint64_t offset, uint64_t count,
@@ -377,6 +404,7 @@ static int64_t proc_write (PAL_HANDLE handle, uint64_t offset, uint64_t count,
     if (count >= (1ULL << (sizeof(unsigned int) * 8)))
         return -PAL_ERROR_INVAL;
 
+#if 0
     int bytes = ocall_write(handle->process.stream_out, buffer, count);
 
     if (IS_ERR(bytes)) {
@@ -385,6 +413,14 @@ static int64_t proc_write (PAL_HANDLE handle, uint64_t offset, uint64_t count,
             HANDLE_HDR(handle)->flags &= ~WRITABLE(1);
         return bytes;
     }
+#else
+    int bytes = _DkStreamSecureWrite(handle->process.ssl_ctx, buffer, count);
+    if (bytes < 0) {
+        if (bytes == -PAL_ERROR_TRYAGAIN)
+            HANDLE_HDR(handle)->flags &= ~WRITABLE(1);
+        return bytes;
+    }
+#endif
 
     if ((uint64_t)bytes == count)
         HANDLE_HDR(handle)->flags |= WRITABLE(1);
@@ -410,6 +446,11 @@ static int proc_close (PAL_HANDLE handle)
         ocall_close(handle->process.cargo);
         handle->process.cargo = PAL_IDX_POISON;
     }
+
+    if (handle->process.ssl_ctx) {
+        _DkStreamSecureFree((LIB_SSL_CONTEXT*)handle->process.ssl_ctx);
+        handle->process.ssl_ctx = NULL;
+    }    
 
     return 0;
 }
